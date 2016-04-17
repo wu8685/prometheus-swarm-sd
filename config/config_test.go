@@ -252,6 +252,23 @@ var expectedConf = &Config{
 			},
 		},
 		{
+			JobName: "service-swarm",
+
+			ScrapeInterval: model.Duration(15 * time.Second),
+			ScrapeTimeout:  DefaultGlobalConfig.ScrapeTimeout,
+
+			MetricsPath: DefaultScrapeConfig.MetricsPath,
+			Scheme:      DefaultScrapeConfig.Scheme,
+
+			SwarmSDConfigs: []*SwarmSDConfig{
+				{
+					Masters:         []URL{swarmSDHostURL()},
+					RefreshInterval: model.Duration(1 * time.Second),
+					MetricsPort:     "8060",
+				},
+			},
+		},
+		{
 			JobName: "service-ec2",
 
 			ScrapeInterval: model.Duration(15 * time.Second),
@@ -426,5 +443,10 @@ func TestEmptyGlobalBlock(t *testing.T) {
 
 func kubernetesSDHostURL() URL {
 	tURL, _ := url.Parse("https://localhost:1234")
+	return URL{URL: tURL}
+}
+
+func swarmSDHostURL() URL {
+	tURL, _ := url.Parse("http://swarm.example.com:8080")
 	return URL{URL: tURL}
 }

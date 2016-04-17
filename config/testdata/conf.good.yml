@@ -121,6 +121,14 @@ scrape_configs:
   - servers:
     - 'http://marathon.example.com:8080'
 
+- job_name: service-swarm
+  swarm_sd_configs:
+  - masters:
+    - 'http://swarm.example.com:8080'
+
+  
+    metrics_port: '8060'
+
 - job_name: service-ec2
   ec2_sd_configs:
     - region: us-east-1

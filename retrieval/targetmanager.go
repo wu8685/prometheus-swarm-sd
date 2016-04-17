@@ -434,6 +434,14 @@ func providersFromConfig(cfg *config.ScrapeConfig) []TargetProvider {
 		}
 		app("kubernetes", i, k)
 	}
+	for i, c := range cfg.SwarmSDConfigs {
+		k, err := discovery.NewSwarmDiscovery(c)
+		if err != nil {
+			log.Errorf("Cannot create Swarm discovery: %s", err)
+			continue
+		}
+		app("swarm", i, k)
+	}
 	for i, c := range cfg.ServersetSDConfigs {
 		app("serverset", i, discovery.NewServersetDiscovery(c))
 	}

@@ -134,6 +134,12 @@ var (
 		RetryInterval:  model.Duration(1 * time.Second),
 	}
 
+	// DefaultSwarmSDConfig is the default Swarm SD configuration
+	DefaultSwarmSDConfig = SwarmSDConfig{
+		RefreshInterval: model.Duration(1 * time.Second),
+		MetricsPort:     "8070",
+	}
+
 	// DefaultEC2SDConfig is the default EC2 SD configuration.
 	DefaultEC2SDConfig = EC2SDConfig{
 		Port:            80,
@@ -376,6 +382,8 @@ type ScrapeConfig struct {
 	MarathonSDConfigs []*MarathonSDConfig `yaml:"marathon_sd_configs,omitempty"`
 	// List of Kubernetes service discovery configurations.
 	KubernetesSDConfigs []*KubernetesSDConfig `yaml:"kubernetes_sd_configs,omitempty"`
+	// List of Swarm service discovery configurations.
+	SwarmSDConfigs []*SwarmSDConfig `yaml:"swarm_sd_configs,omitempty"`
 	// List of EC2 service discovery configurations.
 	EC2SDConfigs []*EC2SDConfig `yaml:"ec2_sd_configs,omitempty"`
 
@@ -693,6 +701,16 @@ type MarathonSDConfig struct {
 	XXX map[string]interface{} `yaml:",inline"`
 }
 
+// SwarmSDConfig is the configuration for Swarm service discovery.
+type SwarmSDConfig struct {
+	Masters         []URL          `yaml:"masters"`
+	RefreshInterval model.Duration `yaml:"refresh_interval,omitempty"`
+	MetricsPort     string         `yaml:"metrics_port"`
+
+	// Catches all undefined fields and must be empty after parsing.
+	XXX map[string]interface{} `yaml:",inline"`
+}
+
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
 func (c *MarathonSDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultMarathonSDConfig
@@ -743,6 +761,21 @@ func (c *KubernetesSDConfig) UnmarshalYAML(unmarshal func(interface{}) error) er
 	}
 
 	return checkOverflow(c.XXX, "kubernetes_sd_config")
+}
+
+// UnmarshalYAML implements the yaml.Unmarshaler interface.
+func (c *SwarmSDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	*c = DefaultSwarmSDConfig
+	type plain SwarmSDConfig
+	err := unmarshal((*plain)(c))
+	if err != nil {
+		return err
+	}
+	if len(c.Masters) == 0 {
+		return fmt.Errorf("Swarm SD configuration requires at least one Swarm master")
+	}
+
+	return checkOverflow(c.XXX, "swarm_sd_config")
 }
 
 // EC2SDConfig is the configuration for EC2 based service discovery.
