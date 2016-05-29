@@ -113,7 +113,7 @@ func createDiscovery() (*Discovery, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	
 	sd.client.do = mockOneNodeDo
 	return sd, nil
 }

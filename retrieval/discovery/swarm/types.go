@@ -5,18 +5,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/prometheus/common/log"
 )
 
 const (
-	ROLE     = "Role"
-	STRATEGY = "Strategy"
-	FILTER   = "Filter"
-	NODES    = "Nodes"
-
-	NODE_SYSTEM_STATUS_NUM    = 8
-	NODE_SYSTEM_STATUS_PREFIX = "  └ "
+	NODE_SYSTEM_STATUS_PREFIX = "└ "
 
 	NODE_SYSTEM_STATUS_KEY_STATUS     = "Status"
 	NODE_SYSTEM_STATUS_KEY_CONTAINERS = "Containers"
@@ -56,10 +48,22 @@ type Info struct {
 	ContainersPaused  int
 	ContainersStopped int
 
-	Role     string
-	Strategy string
-	Filters  []string
-	Nodes    []*Node
+	SystemStatus *SystemStatus
+}
+
+type SystemStatus struct {
+	Nodes []*Node
+}
+
+type Status struct {
+	Key      string
+	Value    string
+	Children []*Status
+	deep     int
+}
+
+func (s *Status) addChild(c *Status) {
+	s.Children = append(s.Children, c)
 }
 
 func (e *InfoEntity) toInfo() (info *Info, err error) {
@@ -71,114 +75,129 @@ func (e *InfoEntity) toInfo() (info *Info, err error) {
 		ContainersStopped: e.ContainersStopped,
 	}
 
-	// parse the first 4 infos in system status
-	var i int
-	nodeNum := 0
-	for i = 0; i < 4; i = i + 1 {
-		tokens := e.SystemStatus[i]
-		if nodeNum, err = e.injectGeneralInfo(tokens, info); err != nil {
-			return
-		}
+	ss, err := e.toSystemStatus()
+	if err != nil {
+		return
 	}
+	info.SystemStatus = ss
 
-	if nodeNum == 0 {
-		log.Debugf("Swarm has no node.")
+	return
+}
+
+func (e *InfoEntity) toSystemStatus() (ss *SystemStatus, err error) {
+	systemStatus, err := e.processSystemStatus()
+	if err != nil {
 		return
 	}
 
-	if len(e.SystemStatus) != 4+NODE_SYSTEM_STATUS_NUM*nodeNum {
-		return nil, fmt.Errorf("Fail to parse response info: no compatible response content. The system status is:\n%v", e.SystemStatus)
+	ss = &SystemStatus{
+		Nodes: []*Node{},
 	}
-
-	log.Debugf("Begin to parse swarm response info: %v", e.SystemStatus)
-	if info.Nodes == nil {
-		info.Nodes = []*Node{}
-	}
-	// parse rest of system status
-	for i = 0; i < nodeNum; i = i + 1 {
-		offset := 4 + NODE_SYSTEM_STATUS_NUM*i
-		j := 0
-		node := &Node{}
-		for ; j < NODE_SYSTEM_STATUS_NUM; j = j + 1 {
-			tokens := e.SystemStatus[offset+j]
-			if err = e.injectNodeInfo(tokens, node); err != nil {
-				return
+	for _, s := range systemStatus.Children {
+		if s.Key == "Nodes" {
+			for _, n := range s.Children {
+				node := &Node{}
+				ss.Nodes = append(ss.Nodes, node)
+				node.inject(n)
 			}
+			break
 		}
-		info.Nodes = append(info.Nodes, node)
 	}
-
-	return info, nil
+	return
 }
 
-func (e *InfoEntity) injectGeneralInfo(tokens []string, info *Info) (int, error) {
-	nodeNum := 0
-	switch tokens[0] {
-	case ROLE:
-		info.Role = tokens[1]
-	case STRATEGY:
-		info.Strategy = tokens[1]
-	case FILTER:
-		if info.Filters == nil {
-			info.Filters = []string{}
-		}
-		filters := strings.Split(tokens[1], ",")
-		for _, f := range filters {
-			f = strings.TrimSpace(f)
-			if f == "" {
-				continue
-			}
-			info.Filters = append(info.Filters, f)
-		}
-	case NODES:
-		n, _err := strconv.Atoi(tokens[1])
+func (e *InfoEntity) processSystemStatus() (root *Status, err error) {
+	root = &Status{
+		Key:      "root",
+		Value:    "",
+		Children: []*Status{},
+		deep:     0,
+	}
+	parents := []*Status{root}
+	for _, ssToken := range e.SystemStatus {
+		s, _err := e.toStatus(ssToken)
 		if _err != nil {
-			return 0, fmt.Errorf("Fail to parse node num in response info: %s.", _err.Error())
+			return nil, _err
 		}
-		nodeNum = n
+
+		parent := parents[len(parents)-1]
+		if parent.deep < s.deep {
+			parent.addChild(s)
+		} else {
+			for {
+				if parent.deep < s.deep {
+					break
+				}
+				parents = parents[:len(parents)-1]
+				parent = parents[len(parents)-1]
+			}
+			parent.addChild(s)
+		}
+		parents = append(parents, s)
 	}
-	return nodeNum, nil
+	return
 }
 
-func (e *InfoEntity) injectNodeInfo(tokens []string, node *Node) (err error) {
-	key := strings.TrimSpace(strings.Trim(tokens[0], NODE_SYSTEM_STATUS_PREFIX))
-	switch key {
-	case NODE_SYSTEM_STATUS_KEY_STATUS:
-		node.Status = strings.TrimSpace(tokens[1])
-	case NODE_SYSTEM_STATUS_KEY_CONTAINERS:
-		node.Containers, err = strconv.Atoi(tokens[1])
-		if err != nil {
-			return fmt.Errorf("Fail to parse containers of node info in response info: %s", err.Error())
-		}
-	case NODE_SYSTEM_STATUS_KEY_CPU:
-		node.ReservedCPUs = strings.TrimSpace(tokens[1])
-	case NODE_SYSTEM_STATUS_KEY_MEMORY:
-		node.ReservedMemory = strings.TrimSpace(tokens[1])
-	case NODE_SYSTEM_STATUS_KEY_LABELS:
-		if node.Labels == nil {
-			node.Labels = map[string]string{}
-		}
-		kvs := strings.Split(tokens[1], ",")
-		for _, kv := range kvs {
-			kv = strings.TrimSpace(kv)
-			if kv == "" || strings.Index(kv, "=") == -1 {
-				continue
-			}
-			pair := strings.Split(kv, "=")
-			node.Labels[strings.TrimSpace(pair[0])] = strings.TrimSpace(pair[1])
-		}
-	case NODE_SYSTEM_STATUS_KEY_ERROR:
-		node.Err = strings.TrimSpace(tokens[1])
-	case NODE_SYSTEM_STATUS_KEY_UPDATE:
-		node.UpdatedAt, err = time.Parse(time.RFC3339Nano, strings.TrimSpace(tokens[1]))
-		if err != nil {
-			return fmt.Errorf("Fail to parse update date of node info in response info: %s", err.Error())
-		}
-	default:
-		host := strings.TrimSpace(tokens[0])
-		addr := strings.TrimSpace(tokens[1])
-		node.Host = host
-		node.Addr = addr
+func (e *InfoEntity) toStatus(tokens []string) (s *Status, err error) {
+	if len(tokens) != 2 {
+		return nil, fmt.Errorf("Incompatible system status content: %v\n", tokens)
 	}
-	return nil
+	s = &Status{
+		Value:    tokens[1],
+		Children: []*Status{},
+	}
+
+	deep := 1
+	for _, c := range tokens[0] {
+		if string(c) != " " {
+			break
+		}
+		deep++
+	}
+	s.deep = deep
+	s.Key = strings.TrimSpace(tokens[0])
+	if strings.HasPrefix(s.Key, NODE_SYSTEM_STATUS_PREFIX) {
+		s.Key = s.Key[2:]
+	}
+	return
+}
+
+func (n *Node) inject(s *Status) (err error) {
+	n.Host = s.Key
+	n.Addr = s.Value
+
+	for _, attr := range s.Children {
+		switch attr.Key {
+		case NODE_SYSTEM_STATUS_KEY_CONTAINERS:
+			n.Containers, err = strconv.Atoi(attr.Value)
+			if err != nil {
+				return fmt.Errorf("Fail to parse containers of node info in response info: %s", err.Error())
+			}
+		case NODE_SYSTEM_STATUS_KEY_CPU:
+			n.ReservedCPUs = attr.Value
+		case NODE_SYSTEM_STATUS_KEY_ERROR:
+			n.Err = attr.Value
+		case NODE_SYSTEM_STATUS_KEY_MEMORY:
+			n.ReservedMemory = attr.Value
+		case NODE_SYSTEM_STATUS_KEY_STATUS:
+			n.Status = attr.Value
+		case NODE_SYSTEM_STATUS_KEY_LABELS:
+			n.Labels = map[string]string{}
+			kvs := strings.Split(attr.Value, ",")
+			for _, kv := range kvs {
+				kv = strings.TrimSpace(kv)
+				if kv == "" || strings.Index(kv, "=") == -1 {
+					continue
+				}
+				pair := strings.Split(kv, "=")
+				n.Labels[strings.TrimSpace(pair[0])] = strings.TrimSpace(pair[1])
+			}
+		case NODE_SYSTEM_STATUS_KEY_UPDATE:
+			n.UpdatedAt, err = time.Parse(time.RFC3339Nano, strings.TrimSpace(attr.Value))
+			if err != nil {
+				return fmt.Errorf("Fail to parse update date of node info in response info: %s", err.Error())
+			}
+		}
+	}
+	return
 }

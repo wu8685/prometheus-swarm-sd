@@ -1,11 +1,9 @@
 package swarm
 
 import (
-	neturl "net/url"
+	"net/http"
 	"strings"
 	"testing"
-
-	"github.com/prometheus/prometheus/config"
 )
 
 var (
@@ -13,42 +11,40 @@ var (
 )
 
 func TestGetNodeInfo(t *testing.T) {
-	client, err := createSwarmClient()
-	if err != nil {
-		t.Fatalf("Fail to create swarm client: %s.\n", err.Error())
-	}
+	client := &swarmClient{}
+	mockResp := createMockResponse()
 
-	info, err := client.getNodeInfo()
+	info, err := client.processNodeInfo(mockResp)
 	if err != nil {
 		t.Fatalf("Fail to get node info: %s.\n", err.Error())
 	}
-	if len(info.Nodes) <= 0 {
-		t.Fatalf("Fail to get node info: node number is %d. It is supposed to be greater than 0.\n", len(info.Nodes))
+	if len(info.SystemStatus.Nodes) <= 0 {
+		t.Fatalf("Fail to get node info: node number is %d. It is supposed to be greater than 0.\n", len(info.SystemStatus.Nodes))
 	}
 
-	node := info.Nodes[0]
+	node := info.SystemStatus.Nodes[0]
 	if strings.HasPrefix(node.Host, " ") || strings.HasSuffix(node.Host, " ") || node.Host == "" {
 		t.Fatalf("Fail to get node info: wrong host %s\n", node.Host)
 	}
 	if strings.HasPrefix(node.Addr, " ") || strings.HasSuffix(node.Addr, " ") || node.Addr == "" {
 		t.Fatalf("Fail to get node info: wrong addr %s\n", node.Addr)
 	}
+	if len(info.SystemStatus.Nodes) <= 0 {
+		t.Fatalf("Fail to parse node info: fail to get host: its num is %d", len(info.SystemStatus.Nodes))
+	}
 }
 
-func createSwarmClient() (*swarmClient, error) {
-	cfg := &config.DefaultSwarmSDConfig
+func createMockResponse() (resp *http.Response) {
+	resp = &http.Response{}
+	resp.StatusCode = 200
+	resp.Body = &mockBody{strings.NewReader(twoNode)}
+	return
+}
 
-	masterUrls := []config.URL{}
-	for _, m := range masters {
-		url, err := neturl.Parse(m)
-		if err != nil {
-			return nil, err
-		}
-		masterUrls = append(masterUrls, config.URL{url})
-	}
-	cfg.Masters = masterUrls
-	client := newSwarmClient(cfg)
-	client.do = mockOneNodeDo
+type mockBody struct {
+	*strings.Reader
+}
 
-	return client, nil
+func (b *mockBody) Close() error {
+	return nil
 }

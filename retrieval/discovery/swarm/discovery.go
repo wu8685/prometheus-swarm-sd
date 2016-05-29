@@ -60,8 +60,8 @@ func (d *Discovery) Sources() []string {
 		return []string{}
 	}
 
-	for _, node := range info.Nodes {
-		sources = append(sources, fmt.Sprintf("%s:%s", nodesTargetGroupName, node.Addr))
+	for _, node := range info.SystemStatus.Nodes {
+		sources = append(sources, node.Addr)
 	}
 
 	return sources
@@ -127,7 +127,7 @@ func (d *Discovery) watchNodes(update chan []*Node, done <-chan struct{}, retryI
 		log.Errorf(err.Error())
 		return
 	}
-	update <- info.Nodes
+	update <- info.SystemStatus.Nodes
 
 	until(func() {
 		info, err = d.client.getNodeInfo()
@@ -135,7 +135,7 @@ func (d *Discovery) watchNodes(update chan []*Node, done <-chan struct{}, retryI
 			log.Errorf(err.Error())
 			return
 		}
-		update <- info.Nodes
+		update <- info.SystemStatus.Nodes
 	}, retryInterval, done)
 }
 
